@@ -16,11 +16,13 @@ export async function askMaestroAI({
   messages,
   apiKey,
   context,
+  previousInteractionId,
 }: {
   messages: { role: "user" | "assistant"; content: string }[];
   apiKey?: string;
   context?: TeacherContextData;
-}): Promise<{ reply: string; usingFallback: boolean }> {
+  previousInteractionId?: string;
+}): Promise<{ reply: string; usingFallback: boolean; interactionId?: string }> {
   const effectiveApiKey =
     apiKey?.trim() || process.env.NEXT_PUBLIC_GEMINI_API_KEY?.trim() || "";
 
@@ -52,8 +54,12 @@ Görevlerin:
 
 Yanıtlarını okunaklı maddeler ve kısa paragraflar halinde, doğrudan öğrenciye hitap ederek yaz.`;
 
+  const lastUserMsg =
+    messages.filter((m) => m.role === "user").pop()?.content ||
+    messages?.[messages.length - 1]?.content ||
+    "";
+
   if (!effectiveApiKey) {
-    const lastUserMsg = messages?.[messages.length - 1]?.content || "";
     return {
       reply: generateContextualFallback(lastUserMsg, context),
       usingFallback: true,
@@ -61,23 +67,22 @@ Yanıtlarını okunaklı maddeler ve kısa paragraflar halinde, doğrudan öğre
   }
 
   const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents,
-    config: {
-      systemInstruction,
-      temperature: 0.7,
-    },
+  const interaction = await ai.interactions.create({
+    model: "gemini-3.8-flash",
+    input: lastUserMsg,
+    system_instruction: systemInstruction,
+    ...(previousInteractionId
+      ? { previous_interaction_id: previousInteractionId }
+      : {}),
   });
 
   return {
-    reply: response.text || "Şu anda yanıt oluşturulamadı, lütfen tekrar deneyin.",
+    reply:
+      interaction.output_text ||
+      "Şu anda yanıt oluşturulamadı, lütfen tekrar deneyin.",
     usingFallback: false,
+    interactionId: interaction.id,
   };
 }
 

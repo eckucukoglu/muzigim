@@ -57,6 +57,11 @@ export default function AITeacherPanel({
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastHandledPromptIdRef = useRef<number | null>(null);
+  const previousInteractionIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    previousInteractionIdRef.current = undefined;
+  }, [geminiApiKey]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -106,6 +111,7 @@ export default function AITeacherPanel({
       try {
         const data = await askMaestroAI({
           apiKey: geminiApiKey,
+          previousInteractionId: previousInteractionIdRef.current,
           messages: updatedMessages.slice(-10).map((m) => ({
             role: m.role,
             content: m.content,
@@ -122,6 +128,10 @@ export default function AITeacherPanel({
             exerciseStats: exerciseStatsSummary,
           },
         });
+
+        if (data.interactionId) {
+          previousInteractionIdRef.current = data.interactionId;
+        }
 
         setMessages((prev) => [
           ...prev,
@@ -223,7 +233,8 @@ export default function AITeacherPanel({
           </button>
 
           <button
-            onClick={() =>
+            onClick={() => {
+              previousInteractionIdRef.current = undefined;
               setMessages([
                 {
                   id: "reset",
@@ -232,8 +243,8 @@ export default function AITeacherPanel({
                     "Sohbet temizlendi. Şu anki dersin veya piyanoda bastığın tuşlarla ilgili istediğin soruyu sorabilirsin!",
                   timestamp: "Şimdi",
                 },
-              ])
-            }
+              ]);
+            }}
             title="Sohbeti Temizle"
             className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60"
           >
