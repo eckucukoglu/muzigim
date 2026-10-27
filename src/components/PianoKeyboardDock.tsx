@@ -237,14 +237,15 @@ export default function PianoKeyboardDock({
               >
                 {/* White Key */}
                 <button
-                  onMouseDown={() => triggerVirtualNoteOn(wk.midi, 85)}
-                  onMouseUp={() => triggerVirtualNoteOff(wk.midi)}
-                  onMouseLeave={() => {
-                    if (activeNotes[wk.midi]?.source === "virtual") {
-                      triggerVirtualNoteOff(wk.midi);
-                    }
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    triggerVirtualNoteOn(wk.midi, 85);
                   }}
-                  className={`w-full h-full rounded-b-md border transition-all flex flex-col justify-end items-center pb-1.5 ${
+                  onPointerUp={() => triggerVirtualNoteOff(wk.midi)}
+                  onPointerLeave={() => triggerVirtualNoteOff(wk.midi)}
+                  onPointerCancel={() => triggerVirtualNoteOff(wk.midi)}
+                  className={`w-full h-full rounded-b-md border transition-all flex flex-col justify-end items-center pb-1.5 touch-none ${
                     isPressed
                       ? "bg-gradient-to-b from-cyan-300 to-emerald-400 border-emerald-500 shadow-[0_0_16px_rgba(16,185,129,0.7)] translate-y-[2px]"
                       : isPrimaryTarget
@@ -284,20 +285,19 @@ export default function PianoKeyboardDock({
                 {/* Black Key (if present on right boundary) */}
                 {hasBlackAfter && (
                   <button
-                    onMouseDown={(e) => {
+                    type="button"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       triggerVirtualNoteOn(nextMidi, 85);
                     }}
-                    onMouseUp={(e) => {
+                    onPointerUp={(e) => {
                       e.stopPropagation();
                       triggerVirtualNoteOff(nextMidi);
                     }}
-                    onMouseLeave={() => {
-                      if (activeNotes[nextMidi]?.source === "virtual") {
-                        triggerVirtualNoteOff(nextMidi);
-                      }
-                    }}
-                    className={`absolute top-0 -right-[32%] w-[64%] h-[62%] z-20 rounded-b-md border transition-all flex flex-col justify-end items-center pb-1.5 ${
+                    onPointerLeave={() => triggerVirtualNoteOff(nextMidi)}
+                    onPointerCancel={() => triggerVirtualNoteOff(nextMidi)}
+                    className={`absolute top-0 -right-[32%] w-[64%] h-[62%] z-20 rounded-b-md border transition-all flex flex-col justify-end items-center pb-1.5 touch-none ${
                       blackPressed
                         ? "bg-gradient-to-b from-emerald-400 to-cyan-500 border-emerald-300 shadow-[0_0_14px_rgba(16,185,129,0.8)] translate-y-[2px]"
                         : blackPrimaryTarget

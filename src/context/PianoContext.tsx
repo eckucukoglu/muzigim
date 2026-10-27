@@ -45,6 +45,7 @@ interface PianoContextValue {
   detectedHarmony: DetectedHarmony;
   triggerVirtualNoteOn: (midi: number, velocity?: number) => void;
   triggerVirtualNoteOff: (midi: number) => void;
+  stopAllNotes: () => void;
   subscribeNoteOn: (cb: NoteOnCallback) => () => void;
   browserPianoSoundOnMidi: boolean;
   setBrowserPianoSoundOnMidi: (val: boolean) => void;
@@ -96,6 +97,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
   const listenersRef = useRef<Set<NoteOnCallback>>(new Set());
   const lastNoteTimestampRef = useRef<number>(0);
   const activeTimestampsRef = useRef<Record<number, number>>({});
+  const activeVirtualMidisRef = useRef<Set<number>>(new Set());
   const midiAccessRef = useRef<MIDIAccess | null>(null);
   const selectedDeviceIdRef = useRef<string | null>(null);
   const browserSoundRef = useRef(browserPianoSoundOnMidi);
@@ -103,6 +105,9 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     browserSoundRef.current = browserPianoSoundOnMidi;
+    if (!browserPianoSoundOnMidi) {
+      soundEngine.stopAll();
+    }
   }, [browserPianoSoundOnMidi]);
 
   useEffect(() => {
@@ -123,9 +128,21 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
 
   const handleSetBrowserSound = useCallback((val: boolean) => {
     setBrowserPianoSoundOnMidi(val);
+    if (!val) {
+      soundEngine.stopAll();
+    }
     if (typeof window !== "undefined") {
       localStorage.setItem("roland_fp10_browser_sound_on_midi", String(val));
     }
+  }, []);
+
+  const stopAllNotes = useCallback(() => {
+    activeTimestampsRef.current = {};
+    activeVirtualMidisRef.current.clear();
+    setActiveNotes({});
+    setSustainPedal(false);
+    setSustainValue(0);
+    soundEngine.stopAll();
   }, []);
 
   const handleNoteOnInternal = useCallback(
@@ -135,6 +152,9 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
         lastNoteTimestampRef.current > 0 ? Math.round(now - lastNoteTimestampRef.current) : 0;
       lastNoteTimestampRef.current = now;
       activeTimestampsRef.current[midi] = now;
+      if (source === "virtual") {
+        activeVirtualMidisRef.current.add(midi);
+      }
 
       const dyn = velocityToDynamic(velocity);
       const event: ActiveNoteEvent = {
@@ -155,7 +175,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (source === "virtual" || browserSoundRef.current) {
-        soundEngine.noteOn(midi, velocity);
+        soundEngine.noteOn(midi, velocity, source);
       }
 
       listenersRef.current.forEach((cb) => {
@@ -169,13 +189,15 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const handleNoteOffInternal = useCallback((midi: number, source: "midi" | "virtual") => {
+  const handleNoteOffInternal = useCallback((midi: number) => {
     const now = performance.now();
     const startTime = activeTimestampsRef.current[midi];
     const durationMs = startTime ? Math.round(now - startTime) : undefined;
     delete activeTimestampsRef.current[midi];
+    activeVirtualMidisRef.current.delete(midi);
 
     setActiveNotes((prev) => {
+      if (!(midi in prev)) return prev;
       const next = { ...prev };
       delete next[midi];
       return next;
@@ -192,9 +214,8 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    if (source === "virtual" || browserSoundRef.current) {
-      soundEngine.noteOff(midi);
-    }
+    // Always call soundEngine.noteOff unconditionally so no note can ever stay stuck
+    soundEngine.noteOff(midi);
   }, []);
 
   const parseMidiMessage = useCallback(
@@ -211,20 +232,24 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
           handleNoteOnInternal(data1, data2, "midi");
         } else {
           // Velocity 0 = Note Off
-          handleNoteOffInternal(data1, "midi");
+          handleNoteOffInternal(data1);
         }
       } else if (status === 0x80) {
         // Note Off
-        handleNoteOffInternal(data1, "midi");
+        handleNoteOffInternal(data1);
       } else if (status === 0xb0) {
-        // Control Change (CC 64 = Sustain Pedal on Roland FP-10)
+        // Control Change
         if (data1 === 64) {
+          // CC 64 = Sustain Pedal on Roland FP-10
           setSustainValue(data2);
           setSustainPedal(data2 >= 64);
+        } else if (data1 === 120 || data1 === 123) {
+          // CC 120 (All Sound Off) / CC 123 (All Notes Off)
+          stopAllNotes();
         }
       }
     },
-    [handleNoteOnInternal, handleNoteOffInternal]
+    [handleNoteOnInternal, handleNoteOffInternal, stopAllNotes]
   );
 
   const bindMidiInputs = useCallback(
@@ -246,6 +271,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
       if (inputs.length === 0) {
         setMidiStatus("no-device");
         setSelectedDeviceId(null);
+        stopAllNotes();
         return;
       }
 
@@ -272,7 +298,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
         }
       });
     },
-    [parseMidiMessage]
+    [parseMidiMessage, stopAllNotes]
   );
 
   const refreshMidi = useCallback(async () => {
@@ -283,6 +309,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      stopAllNotes();
       setMidiStatus("connecting");
       const access = await navigator.requestMIDIAccess({ sysex: false });
       midiAccessRef.current = access;
@@ -294,7 +321,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setMidiStatus("denied");
     }
-  }, [bindMidiInputs]);
+  }, [bindMidiInputs, stopAllNotes]);
 
   useEffect(() => {
     refreshMidi();
@@ -302,20 +329,59 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
 
   const selectMidiDevice = useCallback(
     (id: string) => {
+      stopAllNotes();
       selectedDeviceIdRef.current = id;
       setSelectedDeviceId(id);
       if (midiAccessRef.current) {
         bindMidiInputs(midiAccessRef.current, id);
       }
     },
-    [bindMidiInputs]
+    [bindMidiInputs, stopAllNotes]
   );
+
+  // Global pointer/mouse release and window blur listeners so virtual or MIDI notes never hang
+  useEffect(() => {
+    const releaseAllVirtualNotes = () => {
+      if (activeVirtualMidisRef.current.size === 0) return;
+      const toRelease = Array.from(activeVirtualMidisRef.current);
+      toRelease.forEach((midi) => {
+        handleNoteOffInternal(midi);
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopAllNotes();
+      }
+    };
+
+    window.addEventListener("mouseup", releaseAllVirtualNotes);
+    window.addEventListener("pointerup", releaseAllVirtualNotes);
+    window.addEventListener("pointercancel", releaseAllVirtualNotes);
+    window.addEventListener("touchend", releaseAllVirtualNotes);
+    window.addEventListener("touchcancel", releaseAllVirtualNotes);
+    window.addEventListener("contextmenu", releaseAllVirtualNotes);
+    window.addEventListener("blur", stopAllNotes);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("mouseup", releaseAllVirtualNotes);
+      window.removeEventListener("pointerup", releaseAllVirtualNotes);
+      window.removeEventListener("pointercancel", releaseAllVirtualNotes);
+      window.removeEventListener("touchend", releaseAllVirtualNotes);
+      window.removeEventListener("touchcancel", releaseAllVirtualNotes);
+      window.removeEventListener("contextmenu", releaseAllVirtualNotes);
+      window.removeEventListener("blur", stopAllNotes);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [handleNoteOffInternal, stopAllNotes]);
 
   // Computer keyboard listener for testing when away from piano
   useEffect(() => {
-    const pressedKeys = new Set<string>();
+    const pressedKeyToMidi = new Map<string, number>();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -327,6 +393,10 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
       }
 
       const key = e.key.toLowerCase();
+      if (key === "escape") {
+        stopAllNotes();
+        return;
+      }
       if (key === "z") {
         baseOctaveRef.current = Math.max(2, baseOctaveRef.current - 1);
         return;
@@ -336,21 +406,19 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (key in COMPUTER_KEY_TO_OFFSET && !pressedKeys.has(key)) {
-        pressedKeys.add(key);
+      if (key in COMPUTER_KEY_TO_OFFSET && !pressedKeyToMidi.has(key)) {
         const midi = (baseOctaveRef.current + 1) * 12 + COMPUTER_KEY_TO_OFFSET[key];
+        pressedKeyToMidi.set(key, midi);
         handleNoteOnInternal(midi, 82, "virtual");
       }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (pressedKeys.has(key)) {
-        pressedKeys.delete(key);
-        if (key in COMPUTER_KEY_TO_OFFSET) {
-          const midi = (baseOctaveRef.current + 1) * 12 + COMPUTER_KEY_TO_OFFSET[key];
-          handleNoteOffInternal(midi, "virtual");
-        }
+      const midi = pressedKeyToMidi.get(key);
+      if (midi !== undefined) {
+        pressedKeyToMidi.delete(key);
+        handleNoteOffInternal(midi);
       }
     };
 
@@ -360,7 +428,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [handleNoteOnInternal, handleNoteOffInternal]);
+  }, [handleNoteOnInternal, handleNoteOffInternal, stopAllNotes]);
 
   const triggerVirtualNoteOn = useCallback(
     (midi: number, velocity = 82) => {
@@ -371,7 +439,8 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
 
   const triggerVirtualNoteOff = useCallback(
     (midi: number) => {
-      handleNoteOffInternal(midi, "virtual");
+      if (!activeVirtualMidisRef.current.has(midi)) return;
+      handleNoteOffInternal(midi);
     },
     [handleNoteOffInternal]
   );
@@ -407,6 +476,7 @@ export function PianoProvider({ children }: { children: React.ReactNode }) {
         detectedHarmony,
         triggerVirtualNoteOn,
         triggerVirtualNoteOff,
+        stopAllNotes,
         subscribeNoteOn,
         browserPianoSoundOnMidi,
         setBrowserPianoSoundOnMidi: handleSetBrowserSound,

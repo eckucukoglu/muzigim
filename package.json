@@ -1,6 +1,6 @@
 {
   "name": "muzigim",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -26,8 +26,14 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
+    "firebase-tools": "^15.34.1",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2"
+  },
+  "allowScripts": {
+    "protobufjs@7.6.6": true,
+    "@google/genai@2.31.0": true,
+    "re2@1.27.0": true
   }
 }
