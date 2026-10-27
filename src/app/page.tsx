@@ -9,6 +9,7 @@ import ImprovisationStudio from "@/components/ImprovisationStudio";
 import AITeacherPanel from "@/components/AITeacherPanel";
 import PianoKeyboardDock from "@/components/PianoKeyboardDock";
 import SettingsModal from "@/components/SettingsModal";
+import { APP_VERSION } from "@/lib/version";
 import {
   BookOpen,
   Ear,
@@ -115,6 +116,9 @@ export default function HomePage() {
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-sm sm:text-base tracking-tight text-white">
                 FP-10 Müzik Akademisi
+              </span>
+              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-slate-900 text-slate-400 border border-slate-800">
+                {APP_VERSION}
               </span>
               <span className="hidden md:inline-block px-2 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-amber-400 border border-slate-700">
                 Roland FP-10 BK Stage Piano
