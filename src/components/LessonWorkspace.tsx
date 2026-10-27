@@ -59,6 +59,7 @@ export default function LessonWorkspace({
   const [metronomeOn, setMetronomeOn] = useState(false);
   const [bpm, setBpm] = useState(lesson.exercise.bpm || 76);
   const [beatCount, setBeatCount] = useState(0);
+  const [coachRequestedNotice, setCoachRequestedNotice] = useState(false);
   const lastStepTimestampRef = useRef<number>(0);
   const stepVelocitiesRef = useRef<number[]>([]);
 
@@ -498,15 +499,28 @@ export default function LessonWorkspace({
           </div>
 
           <button
-            onClick={() =>
+            onClick={() => {
+              const avgVel =
+                stepVelocitiesRef.current.length > 0
+                  ? Math.round(
+                      stepVelocitiesRef.current.reduce((a, b) => a + b, 0) /
+                        stepVelocitiesRef.current.length
+                    )
+                  : 0;
+              setCoachRequestedNotice(true);
+              setTimeout(() => setCoachRequestedNotice(false), 2000);
               onAskTeacher(
-                `"${lesson.exercise.title}" egzersizindeki canlı MIDI performansımı analiz eder misin? ${lesson.exercise.aiCoachFocus}`
-              )
-            }
+                `"${lesson.exercise.title}" egzersizindeki canlı MIDI performansımı (Adım: ${stepIndex}/${targetNotes.length}, Hata: ${mistakes}, Ortalama Velocity: ${avgVel}) kısaca analiz eder misin? ${lesson.exercise.aiCoachFocus}`
+              );
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-xs shadow-lg transition shrink-0"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Performansımı AI Öğretmenime Yorumlat</span>
+            <span>
+              {coachRequestedNotice
+                ? "Maestro AI Yorumluyor (Sağ Panel) ✓"
+                : "Performansımı AI Öğretmenime Yorumlat"}
+            </span>
           </button>
         </div>
       </div>

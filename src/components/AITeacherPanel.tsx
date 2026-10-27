@@ -56,12 +56,13 @@ export default function AITeacherPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
   const lastHandledPromptIdRef = useRef<number | null>(null);
-  const previousInteractionIdRef = useRef<string | undefined>(undefined);
+  const activeRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
-    previousInteractionIdRef.current = undefined;
-  }, [geminiApiKey]);
+    messagesRef.current = messages;
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -74,20 +75,31 @@ export default function AITeacherPanel({
   const sendQuestion = useCallback(
     async (questionText: string) => {
       const trimmed = questionText.trim();
-      if (!trimmed || isLoading) return;
+      if (!trimmed) return;
+
+      const requestId = ++activeRequestIdRef.current;
+      const nowTime = new Date().toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 
       const userMsg: ChatMessage = {
-        id: `user-${Date.now()}`,
+        id: `user-${Date.now()}-${requestId}`,
         role: "user",
         content: trimmed,
-        timestamp: new Date().toLocaleTimeString("tr-TR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        timestamp: nowTime,
       };
 
-      const updatedMessages = [...messages, userMsg];
-      setMessages(updatedMessages);
+      const aiMsgId = `ai-${Date.now()}-${requestId}`;
+      const placeholderAiMsg: ChatMessage = {
+        id: aiMsgId,
+        role: "assistant",
+        content: "",
+        timestamp: nowTime,
+      };
+
+      const conversationForApi = [...messagesRef.current, userMsg];
+      setMessages((prev) => [...prev, userMsg, placeholderAiMsg]);
       setInput("");
       setIsLoading(true);
 
@@ -111,8 +123,7 @@ export default function AITeacherPanel({
       try {
         const data = await askMaestroAI({
           apiKey: geminiApiKey,
-          previousInteractionId: previousInteractionIdRef.current,
-          messages: updatedMessages.slice(-10).map((m) => ({
+          messages: conversationForApi.slice(-6).map((m) => ({
             role: m.role,
             content: m.content,
           })),
@@ -127,46 +138,49 @@ export default function AITeacherPanel({
             sustainPedal,
             exerciseStats: exerciseStatsSummary,
           },
+          onStreamChunk: (textSoFar) => {
+            if (activeRequestIdRef.current !== requestId) return;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId ? { ...m, content: textSoFar } : m
+              )
+            );
+          },
         });
 
-        if (data.interactionId) {
-          previousInteractionIdRef.current = data.interactionId;
-        }
+        if (activeRequestIdRef.current !== requestId) return;
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `ai-${Date.now()}`,
-            role: "assistant",
-            content: data.reply,
-            usingFallback: data.usingFallback,
-            timestamp: new Date().toLocaleTimeString("tr-TR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-          },
-        ]);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId
+              ? {
+                  ...m,
+                  content: data.reply,
+                  usingFallback: data.usingFallback,
+                }
+              : m
+          )
+        );
       } catch (err: unknown) {
+        if (activeRequestIdRef.current !== requestId) return;
         const msg = err instanceof Error ? err.message : "Bilinmeyen hata";
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            role: "assistant",
-            content: `⚠️ Gemini API bağlantı hatası: ${msg}. Lütfen sağ üstteki Ayarlar menüsünden API anahtarınızı kontrol edin.`,
-            timestamp: new Date().toLocaleTimeString("tr-TR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-          },
-        ]);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId
+              ? {
+                  ...m,
+                  content: `⚠️ Gemini API bağlantı hatası: ${msg}. Lütfen sağ üstteki Ayarlar menüsünden API anahtarınızı kontrol edin.`,
+                }
+              : m
+          )
+        );
       } finally {
-        setIsLoading(false);
+        if (activeRequestIdRef.current === requestId) {
+          setIsLoading(false);
+        }
       }
     },
     [
-      isLoading,
-      messages,
       recentNotes,
       activeLesson,
       geminiApiKey,
@@ -200,7 +214,7 @@ export default function AITeacherPanel({
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-bold text-white">Maestro AI Öğretmen</h2>
               <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Canlı Bağlam
+                Hızlı Yanıt
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
@@ -234,7 +248,8 @@ export default function AITeacherPanel({
 
           <button
             onClick={() => {
-              previousInteractionIdRef.current = undefined;
+              activeRequestIdRef.current++;
+              setIsLoading(false);
               setMessages([
                 {
                   id: "reset",
@@ -262,10 +277,9 @@ export default function AITeacherPanel({
         <button
           onClick={() =>
             sendQuestion(
-              `Az önce Roland FP-10 piyanomda şu egzersizi/notaları çaldım. Tuş vuruş şiddetimi (velocity), ritmimi ve nota doğruluğumu analiz edip bana öğretmen gözüyle geri bildirim verir misin? (${activeLesson.exercise.aiCoachFocus})`
+              `Az önce Roland FP-10 piyanomda şu egzersizi/notaları çaldım. Tuş vuruş şiddetimi (velocity), ritmimi ve nota doğruluğumu kısaca analiz edip geri bildirim verir misin? (${activeLesson.exercise.aiCoachFocus})`
             )
           }
-          disabled={isLoading}
           className="shrink-0 ml-2 flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-medium transition"
         >
           <Activity className="w-3 h-3" />
@@ -289,20 +303,18 @@ export default function AITeacherPanel({
                   : "bg-slate-800/90 text-slate-100 border border-slate-700/80 rounded-bl-xs"
               }`}
             >
-              {msg.content}
+              {msg.content || (
+                <span className="inline-flex items-center gap-1.5 text-amber-300">
+                  <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>Yanıtlanıyor...</span>
+                </span>
+              )}
             </div>
             <span className="text-[10px] text-slate-500 mt-1 px-1">
               {msg.role === "user" ? "Sen" : "Maestro AI"} • {msg.timestamp}
             </span>
           </div>
         ))}
-
-        {isLoading && (
-          <div className="flex items-center gap-2 text-xs text-amber-300 bg-slate-800/70 border border-slate-700/70 rounded-xl px-3.5 py-2.5 w-fit">
-            <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
-            <span>Maestro AI bastığın notaları ve soropunu inceliyor...</span>
-          </div>
-        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -317,7 +329,6 @@ export default function AITeacherPanel({
             <button
               key={idx}
               onClick={() => sendQuestion(q)}
-              disabled={isLoading}
               className="shrink-0 max-w-[230px] truncate text-left px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] transition"
               title={q}
             >
@@ -344,7 +355,7 @@ export default function AITeacherPanel({
         />
         <button
           type="submit"
-          disabled={!input.trim() || isLoading}
+          disabled={!input.trim()}
           className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold transition shadow-md"
         >
           <Send className="w-4 h-4" />
