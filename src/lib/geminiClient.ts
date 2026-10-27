@@ -12,13 +12,16 @@ export interface TeacherContextData {
   exerciseStats?: string;
 }
 
-const STATIC_SYSTEM_INSTRUCTION = `Sen "Maestro AI" adında, yalnızca piyano (Roland FP-10 BK, PHA-4 klavye) ve müzik eğitimi üzerine uzmanlaşmış, çok hızlı ve net yanıt veren Türkçe piyano öğretmenisin.
+const STATIC_SYSTEM_INSTRUCTION = `Sen "Maestro AI" adında, konservatuvar düzeyinde müzik teorisi, armoni, kulak eğitimi ve piyano pedagojisi uzmanlığına sahip, ilham verici, sabırlı ve Türkçe konuşan bir özel piyano öğretmenisin.
 
-KESİN YANIT KURALLARI (HIZ İÇİN ZORUNLU):
-1. Çok kısa, doğrudan ve öz yanıt ver (maksimum 3-4 kısa madde, toplam 60-100 kelimeyi geçme).
-2. Uzun selamlama veya giriş cümleleri YAZMA; doğrudan sorunun yanıtına veya performans analizine gir.
-3. Notaları hem Türkçe hem harf koduyla yaz: ör. Do (C4), Sol (G4).
-4. Performans analizi istendiğinde öğrencinin bastığı MIDI notalarını, velocity (tuş şiddeti) dengesini ve hata sayısını somut olarak 2-3 maddede değerlendirip tek bir pratik tavsiye ver. Eğer henüz hiç tuşa basılmadıysa kısaca önce egzersizi çalmasını söyle.`;
+Öğrencinin Enstrümanı: Roland FP-10 BK (88 tuşlu PHA-4 Standard fildişi tuşlu, çekiç aksiyonlu dijital stage piano).
+
+ÖĞRETMENLİK İLKELERİN:
+1. Yanıtlarını doyurucu, pedagojik açıdan zengin, müzikal sezgi ve pratik benzetmelerle açıkla (kuru ezber yerine seslerin neden öyle hissettirdiğini aktar).
+2. Notaları hem Türkçe hem uluslararası harf koduyla yaz: ör. Do (C4), Mi (E4), Fa# (F#4).
+3. Roland FP-10 üzerinde çalışırken parmak numaraları (1-baş, 2-işaret, 3-orta, 4-yüzük, 5-serçe), tuş ağırlığı (velocity) ve tuş hassasiyeti hakkında somut önerilerde bulun.
+4. Gereksiz uzun bürokratik giriş/selamlama yapma; doğrudan konunun özüne ve öğrencinin sorusuna odaklan.
+5. Performans analizi istendiğinde öğrencinin bastığı son MIDI notalarını, tuşe dengesini ve ritmini konservatuvar hocası gözüyle yapıcı biçimde yorumla.`;
 
 function buildCompactTurnInput(
   messages: { role: "user" | "assistant"; content: string }[],
@@ -86,7 +89,7 @@ export async function askMaestroAI({
     system_instruction: STATIC_SYSTEM_INSTRUCTION,
     generation_config: {
       thinking_level: "low",
-      max_output_tokens: 450,
+      max_output_tokens: 700,
     },
     store: false,
     stream: true,
@@ -134,6 +137,8 @@ function generateContextualFallback(
 ): string {
   const q = question.toLowerCase();
 
+  const offlineNotice = `> ⚠️ **Çevrimdışı Şablon Modu (API Key Girilmedi):**\n> Şu anda gerçek Gemini AI yerine tarayıcı içi yerel şablon yanıtını görmektesiniz. Maestro AI'ın dersi, majör gam formülünü ve canlı tuşenizi doyurucu ve derinlemesine yanıtlayabilmesi için sağ üstteki **[🔑 API Key Gir]** butonuna tıklayarak ücretsiz Gemini API anahtarınızı tanımlayın.\n\n`;
+
   let analysisSection = "";
   if (context?.recentPlayedNotes && context.recentPlayedNotes !== "Henüz tuşa basılmadı") {
     analysisSection = `\n\n🎹 **Canlı MIDI Takip Özeti:**\nSon bastığınız notalar: \`${context.recentPlayedNotes}\`\n${
@@ -148,7 +153,7 @@ function generateContextualFallback(
     q.includes("nasıl çaldım") ||
     q.includes("yorumla")
   ) {
-    return `### 🎯 Performans ve Tuşe Değerlendirmesi (${context?.exerciseTitle || "Aktif Egzersiz"})
+    return `${offlineNotice}### 🎯 Performans ve Tuşe Değerlendirmesi (${context?.exerciseTitle || "Aktif Egzersiz"})
 ${
   analysisSection ||
   "\n⚠️ **Henüz piyanoda veya ekran klavyesinde nota çalmadınız.** Önce egzersizdeki notaları birkaç kez çalın, ardından tekrar bu butona basın!"
@@ -159,12 +164,12 @@ ${
   }
 
   if (q.includes("fp-10") || q.includes("tuş ağırlığı") || q.includes("pha-4")) {
-    return `### 🎹 Roland FP-10 PHA-4 Klavye İpuçları
+    return `${offlineNotice}### 🎹 Roland FP-10 PHA-4 Klavye İpuçları
 • **Escapement:** Tuşa yavaşça basıldığında dipteki hafif kademe hissi kuyruklu piyano çekiç mekanizmasını simüle eder.
 • **Tuş Sertliği:** Piyanoda **FUNCTION** tuşuna basılı tutarak dokunuş ağırlığını *Medium* seviyesinde tutmanız parmak tekniği için idealdir.${analysisSection}`;
   }
 
-  return `### 🎼 Müzik Öğretmeni Rehberi (${context?.lessonTitle || "Genel Müzik Teorisi"})
+  return `${offlineNotice}### 🎼 Müzik Öğretmeni Rehberi (${context?.lessonTitle || "Genel Müzik Teorisi"})
 • **Hedef Notalar:** \`${context?.targetNotes || "Serbest Çalışma"}\`
 • **Algılanan Armoni:** \`${context?.activeHarmony || "Tek ses / Beklemede"}\`${analysisSection}
 
